@@ -50,10 +50,16 @@ class Ctrl(object):
         self.log.get('Ctrl').info('Starting %s' % self.id)
 
         try:
-            if args.demo: self.avr = bbctrl.AVREmu(self)
+            # Demo and emulate both run without the controller board
+            no_board = args.demo or args.emulate
+            if args.emulate:
+                self.log.get('Ctrl').warning(
+                    'Emulating the controller board, no machine is connected')
+
+            if no_board: self.avr = bbctrl.AVREmu(self)
             else: self.avr = bbctrl.AVR(self)
 
-            self.i2c = bbctrl.I2C(args.i2c_port, args.demo)
+            self.i2c = bbctrl.I2C(args.i2c_port, no_board)
             self.lcd = bbctrl.LCD(self)
             self.mach = bbctrl.Mach(self, self.avr)
             self.preplanner = bbctrl.Preplanner(self)

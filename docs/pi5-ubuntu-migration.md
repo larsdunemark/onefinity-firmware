@@ -230,7 +230,12 @@ Hardware-independent changes are landing first. Each one keeps working on Pi 3 /
 | Invalid escape sequences (errors on newer Python) in `Web.py`, `iw_parse.py` | Done |
 | B9: WiFi on NetworkManager (`config-wifi` backend, `bbctrl/wifi.py` scan and status) | Done |
 | B7, §4.3, §4.4, §4.6: systemd units, cage + Chromium kiosk, Ubuntu system setup (`platform/ubuntu-arm64/`) | Done |
-| B6, §6.2: Ubuntu install path (venv, offline wheels, `make pkg PLATFORM=ubuntu-arm64`, per-platform release channel) | Done, needs an arm64 `gplan.so` (B5) |
+| B6, §6.2: Ubuntu install path (venv, offline wheels, `make pkg PLATFORM=ubuntu-arm64`, per-platform release channel) | Done |
+| B5: native `gplan.so` + `bbemu` build (`scripts/build-native.sh`, arm64 CI) | Done |
+| Tornado 6 compatibility (`Camera.py` `@web.asynchronous`, `AVREmu` restart on EOF) | Done |
+| Running on a Pi 5 without the controller board (`bbctrl --emulate`) | Done |
+| UI build on current Node (`node-sass` → `sass`) | Done |
+| B1/§3.1: is `bbserial` needed? | Test plan below, needs the controller board |
 
 The platform guard has two halves. Both are needed because units in the field run their *installed* `update-bbctrl`, which executes the *new* package's `install.sh`:
 
@@ -288,6 +293,89 @@ Notes:
 - `sockjs-tornado` 1.0.7 (2019) was tested on Python 3.13 with Tornado 6.6 (websocket and XHR transports). It works, but uses a deprecated shim, so replacing it with Tornado's own `WebSocketHandler` is still worthwhile (§5).
 - `python3-libgpiod` is v1 on Ubuntu 24.04, and should be v2 on later releases. `avr109-flash.py` supports both.
 - **Pre-existing Pi 3 bug, not changed:** `scripts/edit-boot-config` is not executable in git, so `install.sh`'s `max_usb_current=1` / `config_hdmi_boost=8` calls fail with "Permission denied" on every Pi 3 update. The legacy script doesn't stop on errors, so this was silent. Fixing it (`chmod +x`) would start applying those settings on field units, so it is a separate decision.
+
+### Native build: `gplan.so` and `bbemu`
+
+`scripts/build-native.sh` (also `make native`) builds both for the machine it runs on. It fetches cbang and CAMotics at the same pinned commits as the Raspbian build and applies the same planner patches. Then it builds `gplan.so` for the system `python3`, plus the AVR emulator `bbemu`. It runs in arm64 CI and directly on a Pi 5.
+
+Fixes the old recipe needed on current Ubuntu:
+- **OpenSSL:** cbang is built with `with_openssl=0`. The 2021 cbang doesn't compile against OpenSSL 3, and `gplan` doesn't use it.
+- **`distutils`:** cbang's `python-config.py` imports it, and Python 3.12 removed it. The script patches it to use `sysconfig`.
+- **`bbemu` warning:** it's built with `-Wno-format-security`, because Ubuntu's GCC turns the shared firmware code's `printf(buf)` into an error. The AVR firmware itself is unchanged.
+
+`.github/workflows/native-arm64.yml` runs the script on GitHub's arm64 runners inside an `ubuntu:26.04` container, so `gplan.so` matches 26.04's Python. It then smoke-tests the planner (`plan.py` on a small program) and `bbemu`, and uploads both as an artifact named after the Python version. Actions has to be enabled for this fork once, in the repository's Actions tab.
+
+Building a complete Ubuntu package (UI, AVR firmware, native parts) in CI is the next step. The UI already builds on Node 22: `node-sass`, which can't be compiled on current Node, was replaced by `sass` (Dart Sass) in `src/svelte-components`.
+
+### Tornado 6
+
+Ubuntu ships Tornado 6.4+, while the Raspbian units run an older Tornado. Two places broke:
+- **`Camera.py`:** `VideoHandler` used `@web.asynchronous`, which Tornado 6 removed. `bbctrl` couldn't even start. It's now a coroutine that stays open until the client disconnects, which works on old and new Tornado.
+- **`AVREmu`:** restarted `bbemu` only on an IO-loop `ERROR` event. On Tornado's asyncio loop a closed pipe shows up as end of file instead, so after the AVR reset at startup the emulated machine hung. An empty read now restarts it.
+
+Related fixes:
+- **Preplanner:** it ran `plan.py` with `/usr/bin/env python3`, which can't import `gplan` from the venv. It now uses `sys.executable`.
+- **Stopping `bbctrl`:** the SIGTERM handler closed a global that was never set, so stopping `bbctrl` left `bbemu` running. It now closes the controllers, and `bbemu` also exits when its input pipe closes (e.g. after a SIGKILL).
+
+`sockjs-tornado` 1.0.7 works on Tornado 6.6 (tested through `bbctrl`'s own router).
+
+### Running on a Pi 5 without the controller board
+
+`bbctrl --emulate` replaces the AVR with `bbemu` (the real AVR firmware compiled for Linux) and disables I²C. Everything else runs normally: the UI, file upload, the preplanner, running programs (the emulated machine moves through the toolpath), WiFi and hostname settings, temperature monitoring and the kiosk. This is unlike `--demo`, which gives each browser its own machine, times clients out and blocks system settings.
+
+The Ubuntu install reads `BBCTRL_ARGS` from `/etc/default/bbctrl`. That file is created on first install and kept on updates. With `--emulate` in it, the installer also skips flashing the AVR.
+
+To try it on a Pi 5 with a screen:
+
+1. Flash Ubuntu Server 26.04 LTS (arm64) for Raspberry Pi. The Pi 5 needs a boot EEPROM from 2025-02-11 or newer.
+2. On the Pi, install the build dependencies:
+   ```
+   sudo apt install build-essential git scons python3-dev python3-pip \
+       python3-setuptools libbz2-dev zlib1g-dev libexpat1-dev libsqlite3-dev \
+       libyaml-dev nodejs npm gcc-avr avr-libc
+   ```
+3. Clone the repository and build the package:
+   ```
+   make native && make pkg PLATFORM=ubuntu-arm64
+   ```
+   Alternatively, take `gplan.so` and `bbemu` from the CI artifact. The AVR firmware build (`gcc-avr`) hasn't been tried on Ubuntu 26.04 yet.
+4. Enable emulation before installing:
+   ```
+   echo 'BBCTRL_ARGS=--emulate' | sudo tee /etc/default/bbctrl
+   ```
+5. Install from the extracted package:
+   ```
+   tar xf dist/bbctrl-*.tar.bz2 && cd bbctrl-*/ && sudo ./scripts/install.sh
+   ```
+   The first install needs the network, for Ubuntu packages and the Chromium snap.
+
+Verified in a sandbox, without a Pi:
+- **Package:** built a complete `ubuntu-arm64` package with `gplan.so`, `bbemu` and the wheel, and installed it with the real installer. It skipped the AVR flash because of `--emulate`.
+- **Run:** started the installed `bbctrl` the way the unit does and ran a program end to end over the HTTP API, watching positions over the websocket.
+- **Stop:** both SIGTERM and SIGKILL also stop `bbemu`.
+
+Still untested: the kiosk on real hardware, and anything Pi-specific (thermal zone, KMS, touch).
+
+### Is `bbserial` needed?
+
+What it does, from the code:
+- It replaces the stock `amba-pl011` driver for the AVR's UART with a minimal character device that keeps the `ttyAMA0` name.
+- It enables the PL011's hardware CTS flow control (`CTSEN`) and keeps RTS asserted, so there's no receive-side flow control.
+- It moves data through 64 KB ring buffers from the interrupt handler, bypassing the tty layer.
+
+The git history doesn't record why it was written, since the code arrived in a squashed import. The likely reason is lost or late bytes at 230400 baud through the tty layer on a 1.2 GHz Pi 3.
+
+The stock driver also supports hardware CTS (`crtscts`; `AVR.py` already opens the port with `rtscts=1`). On the Pi 5 there are two arguments against porting `bbserial`:
+- **Speed:** the Pi 5's CPU is several times faster, which helps the stock path.
+- **Register access:** on RP1 every UART register access crosses PCIe. `bbserial` polls the flag register once per byte, so it would lose part of its advantage.
+
+Test plan, once the controller board is attached to a Pi 5:
+1. **UART config:** enable UART0 with RTS/CTS in `config.txt` and don't install `bbserial`. `onefinity-hw-setup` then leaves the stock driver in place.
+2. **Soak test:** run long jobs, frequent jogging and status-heavy operations. Check `/proc/tty/driver/ttyAMA` for overrun (`oe`) and framing (`fe`) errors, and the `bbctrl` log for AVR communication errors.
+3. **Optional low-latency flag:** repeat with `serial_set_low_latency()` in `AVR.py` enabled (currently commented out).
+4. **Decision:** if the counters stay at zero, drop `bbserial` on Ubuntu. Otherwise, port it (current kernel APIs, DKMS, bound via the `serial0` alias as `onefinity-hw-setup` already does) and measure again.
+
+On a Pi 5 without the board, `bbserial` isn't involved: `--emulate` doesn't use a serial port.
 
 ## Sources
 

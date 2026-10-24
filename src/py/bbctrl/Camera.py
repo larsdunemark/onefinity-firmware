@@ -35,7 +35,7 @@ import pyudev
 import base64
 import socket
 import ctypes
-from tornado import gen, web, iostream
+from tornado import concurrent, gen, web, iostream
 import bbctrl
 
 try:
@@ -468,8 +468,11 @@ class VideoHandler(web.RequestHandler):
         self.camera = app.camera
 
 
-    @web.asynchronous
+    # Streams until the client disconnects.  A coroutine instead of
+    # @web.asynchronous, which Tornado 6 removed.
+    @gen.coroutine
     def get(self):
+        self.closed = concurrent.Future()
         self.request.connection.stream.max_write_buffer_size = 10000
 
         self.set_header('Cache-Control', 'no-store, no-cache, must-revalidate, '
@@ -482,6 +485,8 @@ class VideoHandler(web.RequestHandler):
 
         if self.camera is None: self.write_img('offline')
         else: self.camera.add_client(self)
+
+        yield self.closed
 
 
     def write_img(self, name):
@@ -507,4 +512,6 @@ class VideoHandler(web.RequestHandler):
         self.write_frame(frame)
 
 
-    def on_connection_close(self): self.camera.remove_client(self)
+    def on_connection_close(self):
+        if self.camera is not None: self.camera.remove_client(self)
+        if not self.closed.done(): self.closed.set_result(None)

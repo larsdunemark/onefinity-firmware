@@ -59,6 +59,10 @@ wheels:
 bbserial:
 	$(MAKE) -C src/bbserial
 
+# gplan.so and bbemu for this machine, e.g. in arm64 CI or on a Pi 5
+native:
+	./scripts/build-native.sh
+
 gplan: $(GPLAN_TARGET)
 
 $(GPLAN_TARGET): $(GPLAN_MOD)
@@ -120,4 +124,4 @@ clean:
 	rm -rf rpi-share
 	git clean -fxd
 
-.PHONY: all install clean tidy pkg gplan lint pylint jshint bbserial wheels
+.PHONY: all install clean tidy pkg gplan lint pylint jshint bbserial wheels native

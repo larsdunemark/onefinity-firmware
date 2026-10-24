@@ -5,7 +5,9 @@ After=network.target onefinity-hw-setup.service
 
 [Service]
 User=root
-ExecStart=/opt/onefinity/venv/bin/bbctrl -l /var/log/bbctrl.log
+# BBCTRL_ARGS, e.g. --emulate to run without the controller board
+EnvironmentFile=-/etc/default/bbctrl
+ExecStart=/opt/onefinity/venv/bin/bbctrl -l /var/log/bbctrl.log $BBCTRL_ARGS
 StateDirectory=bbctrl
 WorkingDirectory=/var/lib/bbctrl
 Restart=always
