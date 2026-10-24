@@ -107,8 +107,11 @@ void emu_callback() {
     if (0 < select(4, &readFDs, 0, 0, &t)) {
       uint8_t data;
 
-      if (serialByte == -1 && FD_ISSET(0, &readFDs) && read(0, &data, 1) == 1)
-        serialByte = data;
+      if (serialByte == -1 && FD_ISSET(0, &readFDs)) {
+        ssize_t n = read(0, &data, 1);
+        if (n == 1) serialByte = data;
+        else if (!n) exit(0); // bbctrl is gone, don't run on as an orphan
+      }
 
       if (!haveI2C && FD_ISSET(3, &readFDs) && read(3, &data, 1) == 1) {
         if (data == '\n') haveI2C = true;

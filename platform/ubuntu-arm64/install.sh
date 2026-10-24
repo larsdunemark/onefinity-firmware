@@ -20,6 +20,10 @@ PLATFORM_DIR=platform/ubuntu-arm64
 # goes here once verified on hardware.
 BOOT_LINES=(dtparam=i2c_arm=on)
 
+# Without the controller board (bbctrl --emulate) there is no AVR to flash
+[ -e /etc/default/bbctrl ] && . /etc/default/bbctrl
+[[ " $BBCTRL_ARGS " == *" --emulate "* ]] && UPDATE_AVR=false
+
 # update-bbctrl passes all options as one argument, so split on spaces
 # shellcheck disable=SC2048
 for ARG in $*; do
@@ -66,6 +70,11 @@ END
     while read -r SCRIPT; do
         ln -sf "$VENV/bin/$SCRIPT" "$BIN_DIR/$SCRIPT"
     done
+
+    # AVR emulator, run by bbctrl --emulate
+    if [ -e src/avr/emu/bbemu ]; then
+        install -m 755 src/avr/emu/bbemu "$BIN_DIR/bbemu"
+    fi
 
     if ! "$VENV/bin/python" -c 'import camotics.gplan' 2>/dev/null; then
         echo "WARNING: camotics.gplan is missing, the planner will not work"

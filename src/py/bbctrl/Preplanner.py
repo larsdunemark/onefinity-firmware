@@ -26,6 +26,7 @@
 ################################################################################
 
 import os
+import sys
 import time
 import json
 import hashlib
@@ -148,7 +149,8 @@ class Plan(object):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cmd = (
-                '/usr/bin/env', 'python3',
+                # The same Python as bbctrl, which can import gplan
+                sys.executable,
                 bbctrl.get_resource('plan.py'),
                 os.path.abspath(self.gcode), json.dumps(self.state),
                 json.dumps(self.config),

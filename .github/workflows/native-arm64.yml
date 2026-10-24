@@ -1,0 +1,70 @@
+# Builds the native parts of the Ubuntu arm64 firmware (gplan.so, bbemu) on
+# an arm64 runner, in the Ubuntu release the controller runs, so gplan.so
+# matches that release's Python.  See scripts/build-native.sh.
+name: Native arm64 build
+
+on:
+  push:
+    paths:
+      - scripts/build-native.sh
+      - src/avr/**
+      - src/py/bbctrl/plan.py
+      - .github/workflows/native-arm64.yml
+  pull_request:
+    paths:
+      - scripts/build-native.sh
+      - src/avr/**
+      - src/py/bbctrl/plan.py
+      - .github/workflows/native-arm64.yml
+  workflow_dispatch:
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04-arm
+    container: ubuntu:26.04
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential ca-certificates git perl scons python3-dev \
+            libbz2-dev zlib1g-dev libexpat1-dev libsqlite3-dev libyaml-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Build gplan.so and bbemu
+        run: ./scripts/build-native.sh
+
+      - name: Smoke test the planner
+        run: |
+          cat > /tmp/test.nc <<'END'
+          G21 G90
+          G0 Z5
+          G1 Z-1 F300
+          G1 X50 F1000
+          G2 X60 Y10 I0 J10
+          G0 Z5
+          M2
+          END
+          CFG='{"default-units":"METRIC","max-vel":{"x":10000,"y":10000,"z":3000},"max-accel":{"x":750000,"y":750000,"z":750000},"max-jerk":{"x":1000000000,"y":1000000000,"z":1000000000},"max-blend-error":0.05,"max-merge-error":0.05,"max-arc-error":0.005,"junction-accel":200000}'
+          mkdir /tmp/plan && cd /tmp/plan
+          PYTHONPATH=$GITHUB_WORKSPACE/src/py \
+            python3 $GITHUB_WORKSPACE/src/py/bbctrl/plan.py /tmp/test.nc '{}' "$CFG"
+          cat meta.json
+          python3 -c 'import json; m = json.load(open("meta.json")); assert m["time"] > 0 and not m["messages"], m'
+
+      - name: Smoke test the AVR emulator
+        run: |
+          (sleep 2) | timeout 10 src/avr/emu/bbemu 3</dev/null | tee /tmp/bbemu.out
+          grep -q '"firmware":"Buildbotics AVR"' /tmp/bbemu.out
+
+      - name: Name artifacts after the Python version
+        run: echo "PYVER=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-arm64-python${{ env.PYVER }}
+          path: |
+            src/py/camotics/gplan.so
+            src/avr/emu/bbemu

@@ -6,4 +6,5 @@ graft src/py/bbctrl/http
 graft src/py/camotics
 include src/avr/bbctrl-avr-firmware.hex
 include src/bbserial/bbserial.ko
+include src/avr/emu/bbemu
 global-exclude .gitignore

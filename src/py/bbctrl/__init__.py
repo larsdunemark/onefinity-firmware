@@ -64,7 +64,7 @@ import bbctrl.Log as log
 import bbctrl.ObjGraph as ObjGraph
 
 
-ctrl = None
+web = None
 
 
 def get_resource(path):
@@ -72,13 +72,17 @@ def get_resource(path):
 
 
 def on_exit(sig = 0, func = None):
-    global ctrl
+    global web
 
     print('Exit handler triggered: signal = %d', sig)
 
-    if ctrl is not None:
-        ctrl.close()
-        ctrl = None
+    # Closes the AVR connection, which also stops bbemu when emulating
+    if web is not None:
+        for ctrl in list(web.ctrls.values()):
+            try:
+                ctrl.close()
+            except Exception: pass
+        web = None
 
     sys.exit(0)
 
@@ -153,6 +157,9 @@ def parse_args():
                         help = 'Maximum simultaneous camera clients')
     parser.add_argument('--demo', action = 'store_true',
                         help = 'Enter demo mode')
+    parser.add_argument('--emulate', action = 'store_true',
+                        help = 'Run without the controller board, emulating '
+                        'the AVR with bbemu')
     parser.add_argument('--debug', default = 0, type = int,
                         help = 'Enable debug mode and set frequency in seconds')
     parser.add_argument('--fast-emu', action = 'store_true',
@@ -164,7 +171,7 @@ def parse_args():
 
 
 def run():
-    global ctrl
+    global web
 
     args = parse_args()
 

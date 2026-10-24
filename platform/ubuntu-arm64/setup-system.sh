@@ -80,6 +80,16 @@ MemoryMax=750M
 END
 
 
+# Local bbctrl options, kept across updates
+if [ ! -e /etc/default/bbctrl ]; then
+    cat > /etc/default/bbctrl <<END
+# Extra options for bbctrl.  Use --emulate on a Pi without the controller
+# board: bbemu then emulates the AVR and no machine moves.
+BBCTRL_ARGS=
+END
+fi
+
+
 # Log rotation for /var/log/bbctrl.log
 install -m 644 ../../scripts/bbctrl-logrotate /etc/logrotate.d/bbctrl
 

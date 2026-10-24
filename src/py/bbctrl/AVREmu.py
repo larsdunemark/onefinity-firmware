@@ -187,6 +187,13 @@ class AVREmu(object):
 
         try:
             data = os.read(self.avrIn, 4096)
+
+            # bbemu exits when the AVR resets.  On Tornado's asyncio loop
+            # that shows up as end of file, not an ERROR event.
+            if data == b'':
+                self._start()
+                return
+
             if data is not None: self.read_cb(data)
 
         except Exception as e:

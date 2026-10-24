@@ -9,6 +9,9 @@ OBJ+=build/emu.o
 CFLAGS = -I../src -Isrc -Wall -Werror -DDEBUG -g -std=gnu++98
 CFLAGS += -MD -MP -MT $@ -MF build/$(@F).d
 CFLAGS += -DF_CPU=32000000 -Wno-class-memaccess -pthread
+# Ubuntu enables -Wformat-security by default.  Shared firmware code prints
+# preformatted buffers, which is safe there.
+CFLAGS += -Wno-format-security
 LDFLAGS = -lm -pthread
 
 all: $(TARGET)
