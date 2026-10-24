@@ -558,22 +558,25 @@ class ScreenRotationHandler(bbctrl.APIHandler):
     def put_ok(self):
         rotated = self.json['rotated']
 
-        subprocess.Popen([
+        # Wait for it, the reboot below could otherwise lose the change
+        subprocess.call([
             '/usr/local/bin/edit-boot-config',
             'display_rotate={}'.format(2 if rotated else 0)
         ])
 
-        with open("/usr/share/X11/xorg.conf.d/40-libinput.conf",
-                  'rt') as config:
-            text = config.read()
-            text = transformationMatrixPattern.sub(r'\1\2\3\5', text)
-            if rotated:
-                text = matchIsTouchscreenPattern.sub(
-                    r'\1\2\3\2Option "TransformationMatrix" "-1 0 1 0 -1 1 0 0 1"\1\4',
-                    text)
-        with open("/usr/share/X11/xorg.conf.d/40-libinput.conf",
-                  'wt') as config:
-            config.write(text)
+        # X11 touch rotation.  Without X (Ubuntu kiosk) the kiosk applies
+        # display_rotate to the outputs and touch follows.
+        libinput_conf = "/usr/share/X11/xorg.conf.d/40-libinput.conf"
+        if os.path.exists(libinput_conf):
+            with open(libinput_conf, 'rt') as config:
+                text = config.read()
+                text = transformationMatrixPattern.sub(r'\1\2\3\5', text)
+                if rotated:
+                    text = matchIsTouchscreenPattern.sub(
+                        r'\1\2\3\2Option "TransformationMatrix" "-1 0 1 0 -1 1 0 0 1"\1\4',
+                        text)
+            with open(libinput_conf, 'wt') as config:
+                config.write(text)
 
         subprocess.run('reboot')
 

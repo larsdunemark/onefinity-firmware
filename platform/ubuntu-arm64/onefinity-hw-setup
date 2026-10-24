@@ -1,0 +1,40 @@
+#!/bin/bash -e
+
+# Hardware setup before bbctrl starts.  Replaces the hardware part of the
+# Raspbian rc.local.  The CTS pin mux ("gpio mode 27 alt3" there) is set by
+# the UART overlay in config.txt instead.
+#
+# If the bbserial module is installed, hand the AVR's UART over to it.
+# Otherwise the stock pl011 driver keeps the UART.  The UART is found through
+# a device tree alias, not by address, because addresses differ per board.
+
+UART_ALIAS=${UART_ALIAS:-serial0}
+SYS=${SYS:-/sys} # Overridable for tests
+
+if ! modinfo bbserial >/dev/null 2>&1; then
+    echo "bbserial not installed, using the stock UART driver"
+    exit 0
+fi
+
+ALIAS_FILE=$SYS/firmware/devicetree/base/aliases/$UART_ALIAS
+if [ ! -e "$ALIAS_FILE" ]; then
+    echo "Device tree alias $UART_ALIAS not found" >&2
+    exit 1
+fi
+
+NODE=$SYS/firmware/devicetree/base$(tr -d '\0' < "$ALIAS_FILE")
+NODE=$(readlink -f "$NODE")
+
+for DEV in "$SYS"/bus/amba/drivers/uart-pl011/*/; do
+    [ -e "$DEV/of_node" ] || continue
+
+    if [ "$(readlink -f "$DEV/of_node")" == "$NODE" ]; then
+        NAME=$(basename "$DEV")
+        echo "Unbinding $NAME from uart-pl011"
+        echo "$NAME" > "$SYS/bus/amba/drivers/uart-pl011/unbind"
+        break
+    fi
+done
+
+modprobe -r bbserial
+modprobe bbserial

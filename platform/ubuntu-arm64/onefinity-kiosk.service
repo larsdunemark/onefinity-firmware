@@ -1,0 +1,30 @@
+# Touchscreen UI: Chromium full screen in the cage Wayland kiosk compositor.
+# Replaces rc.local's "startx" and the X/ratpoison setup used on Raspbian.
+[Unit]
+Description=OneFinity touchscreen kiosk
+Wants=bbctrl.service
+After=bbctrl.service systemd-user-sessions.service plymouth-quit-wait.service
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+User=kiosk
+PAMName=login
+WorkingDirectory=~
+Environment=XDG_SESSION_TYPE=wayland
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+ExecStart=/usr/bin/cage -d -- /usr/local/bin/onefinity-browser
+# cage exits when the browser does
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

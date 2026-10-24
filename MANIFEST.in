@@ -1,5 +1,6 @@
 include package.json README.md PLATFORMS
 graft scripts
+graft platform
 graft src/py/bbctrl/http
 graft src/py/camotics
 include src/avr/bbctrl-avr-firmware.hex

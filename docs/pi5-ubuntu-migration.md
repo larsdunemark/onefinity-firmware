@@ -229,6 +229,7 @@ Hardware-independent changes are landing first. Each one keeps working on Pi 3 /
 | §3.4: `MonitorTemp.py` reads CPU frequency limits from sysfs, writes all policies | Done |
 | Invalid escape sequences (errors on newer Python) in `Web.py`, `iw_parse.py` | Done |
 | B9: WiFi on NetworkManager (`config-wifi` backend, `bbctrl/wifi.py` scan and status) | Done |
+| B7, §4.3, §4.4, §4.6: systemd units, cage + Chromium kiosk, Ubuntu system setup (`platform/ubuntu-arm64/`) | Done, not yet called by an Ubuntu install path |
 
 The platform guard has two halves. Both are needed because units in the field run their *installed* `update-bbctrl`, which executes the *new* package's `install.sh`:
 
@@ -248,6 +249,24 @@ The platform guard has two halves. Both are needed because units in the field ru
 Ubuntu image requirements:
 - Install `network-manager` (with `dnsmasq-base`, which shared mode needs). Set the netplan renderer to `NetworkManager`, e.g. `/etc/netplan/01-network-manager.yaml` with `network: {version: 2, renderer: NetworkManager}`.
 - Don't define WiFi networks in cloud-init / netplan YAML. NetworkManager can't delete those profiles, so they would come back after "disable".
+
+### systemd units and kiosk (`platform/ubuntu-arm64/`)
+
+These files replace `rc.local`, `xinitrc`, `scripts/browser` and ratpoison on Ubuntu. The Raspbian files are unchanged.
+
+| File | Replaces | Notes |
+|---|---|---|
+| `bbctrl.service` | `scripts/bbctrl.service` | Runs `/opt/onefinity/venv/bin/bbctrl` (venv install is still to do, B6). Adds `RestartSec`, `StateDirectory`. Keeps `KillMode=process`, because `update-bbctrl` is a child of `bbctrl` and stops it. |
+| `onefinity-hw-setup` + `.service` | UART part of `rc.local` | If the `bbserial` module is installed, unbinds the PL011 that the `serial0` DT alias points to (no hard-coded address) and loads `bbserial`. Otherwise leaves the stock driver (§3.1 option 1). |
+| `onefinity-kiosk.service` | `rc.local` `startx`, `xinitrc` loop | `cage` on tty1 as user `kiosk`, restarted by systemd. |
+| `onefinity-browser` | `xinitrc`, `scripts/browser` | Waits for `bbctrl`, applies `display_rotate` from `config.txt` with `wlr-randr` (touch follows the output), clears Chromium crash flags, runs Chromium `--kiosk` on Wayland. |
+| `setup-system.sh` | parts of `setup_rpi.sh` / `install.sh` | Idempotent. Installs packages and the Chromium snap. Creates the `kiosk` user. Sets the browser memory limit (650M/750M, as `rc.local`'s cgroup did) on the kiosk user's slice, because the Chromium snap runs in its own scope outside the service. Disables unattended upgrades, holds snap refreshes, disables cloud-init after first boot, sets the netplan renderer to NetworkManager, installs and enables the units. |
+
+To verify on hardware:
+- Chromium snap under cage via a PAM session, and the memory limit actually applying to the snap's scope.
+- `wlr-randr` transforms and touch mapping on the OneFinity touchscreen.
+- The RP1 UART appearing under `uart-pl011` on the amba bus.
+- Whether `--kiosk` is wanted. The X11 setup didn't use it and relied on ratpoison to maximize the window.
 
 ## Sources
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=OneFinity controller hardware setup
+Before=bbctrl.service
+After=systemd-modules-load.service systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/onefinity-hw-setup
+
+[Install]
+WantedBy=multi-user.target

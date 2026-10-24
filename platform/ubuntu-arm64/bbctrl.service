@@ -1,0 +1,20 @@
+[Unit]
+Description=OneFinity Controller
+Wants=onefinity-hw-setup.service
+After=network.target onefinity-hw-setup.service
+
+[Service]
+User=root
+ExecStart=/opt/onefinity/venv/bin/bbctrl -l /var/log/bbctrl.log
+StateDirectory=bbctrl
+WorkingDirectory=/var/lib/bbctrl
+Restart=always
+RestartSec=2
+StandardOutput=null
+Nice=-10
+# Firmware updates are started by bbctrl and run "systemctl stop bbctrl",
+# so only the main process may be killed on stop
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
