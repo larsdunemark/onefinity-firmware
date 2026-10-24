@@ -1,0 +1,4 @@
+# Python dependencies Ubuntu doesn't package.  Bundled into the firmware
+# package as wheels (see "make wheels") and installed offline.  The rest come
+# from Ubuntu packages, see setup-system.sh.
+sockjs-tornado==1.0.7

@@ -7,11 +7,17 @@ BOOT_DIR=/boot
 
 cp $BOOT_DIR/config.txt /tmp/
 
-edit-config /tmp/config.txt "$@"
+# edit-config is installed next to this script, also when run from a package
+python3 "$(dirname "$0")/edit-config" /tmp/config.txt "$@"
 
 diff $BOOT_DIR/config.txt /tmp/config.txt >/dev/null
 if [ $? -eq 1 ]; then
-  mount -o remount,rw $BOOT_DIR
+  # Raspbian keeps /boot read-only, Ubuntu keeps /boot/firmware writable
+  RO=false
+  findmnt -no OPTIONS $BOOT_DIR 2>/dev/null | tr , '\n' | grep -qx ro &&
+      RO=true
+
+  $RO && mount -o remount,rw $BOOT_DIR
   mv /tmp/config.txt $BOOT_DIR/
-  mount -o remount,ro $BOOT_DIR
+  $RO && mount -o remount,ro $BOOT_DIR
 fi

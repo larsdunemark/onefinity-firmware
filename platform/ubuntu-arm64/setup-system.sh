@@ -1,23 +1,42 @@
 #!/bin/bash -e
 
 # Sets up the OneFinity controller's system integration on an Ubuntu arm64
-# image: systemd units, the touchscreen kiosk and settings a CNC controller
-# needs.  Safe to run more than once.  Run from this directory as root.
+# image: packages, systemd units, the touchscreen kiosk and settings a CNC
+# controller needs.  Run as root by install.sh on every install and update,
+# so it must be idempotent and work offline once the image has the packages.
 #
-# Not yet covered here: installing bbctrl itself (into /opt/onefinity/venv),
-# the UART/I2C config.txt overlays and USB automount.
+# Not yet covered here: the UART config.txt overlays and USB automount.
 
 cd "$(dirname "$0")"
 
 KIOSK_USER=kiosk
 
+PACKAGES=(
+    # Kiosk and networking
+    cage wlr-randr curl network-manager dnsmasq-base
+    # bbctrl's dependencies, used from its venv via --system-site-packages.
+    # sockjs-tornado isn't packaged, it ships as a wheel, see requirements.txt
+    python3-venv python3-setuptools python3-tornado python3-serial
+    python3-pyudev python3-smbus2 python3-watchdog python3-libgpiod
+)
+
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 
 
-# Packages
-apt-get update
-apt-get install -y cage wlr-randr curl network-manager dnsmasq-base
+# Packages.  Only needs the network when something is missing, which is on a
+# fresh image, not on firmware updates.
+MISSING=()
+for PKG in "${PACKAGES[@]}"; do
+    dpkg-query -W -f '${Status}' "$PKG" 2>/dev/null |
+        grep -q 'install ok installed' || MISSING+=("$PKG")
+done
+
+if [ ${#MISSING[@]} -ne 0 ]; then
+    apt-get update
+    apt-get install -y "${MISSING[@]}"
+fi
+
 snap list chromium >/dev/null 2>&1 || snap install chromium
 
 
@@ -59,6 +78,10 @@ cat > $SLICE_DIR/50-onefinity-memory.conf <<END
 MemoryHigh=650M
 MemoryMax=750M
 END
+
+
+# Log rotation for /var/log/bbctrl.log
+install -m 644 ../../scripts/bbctrl-logrotate /etc/logrotate.d/bbctrl
 
 
 # Scripts and units

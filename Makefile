@@ -25,6 +25,14 @@ PKG_NAME := bbctrl-$(VERSION)
 
 SUBPROJECTS := avr boot pwr jig
 
+# The OS image a package is built for, see scripts/onefinity-platform.
+# Build an Ubuntu package with "make pkg PLATFORM=ubuntu-arm64".
+PLATFORM ?= raspbian-armhf
+
+ifeq ($(PLATFORM),raspbian-armhf)
+PKG_DEPS := bbserial
+endif
+
 ifndef HOST
 HOST=onefinity.local
 endif
@@ -36,8 +44,17 @@ endif
 all: $(HTML) $(RESOURCES)
 	@for SUB in $(SUBPROJECTS); do $(MAKE) -C src/$$SUB; done
 
-pkg: all $(AVR_FIRMWARE) bbserial
+pkg: all $(AVR_FIRMWARE) $(PKG_DEPS) wheels
+	echo $(PLATFORM) > PLATFORMS
 	./setup.py sdist
+
+# Python dependencies the OS doesn't package, so installs work offline
+wheels:
+	rm -rf wheels
+	if [ -e platform/$(PLATFORM)/requirements.txt ]; then \
+	  pip3 wheel --no-deps -w wheels \
+	    -r platform/$(PLATFORM)/requirements.txt; \
+	fi
 
 bbserial:
 	$(MAKE) -C src/bbserial
@@ -103,4 +120,4 @@ clean:
 	rm -rf rpi-share
 	git clean -fxd
 
-.PHONY: all install clean tidy pkg gplan lint pylint jshint bbserial
+.PHONY: all install clean tidy pkg gplan lint pylint jshint bbserial wheels

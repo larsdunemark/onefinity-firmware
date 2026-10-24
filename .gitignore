@@ -2,6 +2,8 @@
 .sconsign.dblite
 /build
 /dist
+/PLATFORMS
+/wheels
 /crap
 /pkg
 /mnt

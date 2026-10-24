@@ -4,6 +4,7 @@ UPDATE_AVR=true
 UPDATE_PY=true
 REBOOT=false
 FORCE_PLATFORM=false
+ARGS="$*"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -23,6 +24,13 @@ if ! $FORCE_PLATFORM && ! ./scripts/onefinity-platform --check PLATFORMS; then
          "$(./scripts/onefinity-platform), aborting install"
     systemctl start bbctrl
     exit 1
+fi
+
+
+# Everything below is for Raspbian
+if [ "$(./scripts/onefinity-platform)" == "ubuntu-arm64" ]; then
+    chmod +x ./platform/ubuntu-arm64/*.sh
+    exec ./platform/ubuntu-arm64/install.sh "$ARGS"
 fi
 
 
