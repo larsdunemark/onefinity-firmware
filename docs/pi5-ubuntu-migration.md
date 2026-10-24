@@ -228,12 +228,26 @@ Hardware-independent changes are landing first. Each one keeps working on Pi 3 /
 | B8 (part): boot dir detection in `edit-boot-config` and `Web.py` | Done |
 | §3.4: `MonitorTemp.py` reads CPU frequency limits from sysfs, writes all policies | Done |
 | Invalid escape sequences (errors on newer Python) in `Web.py`, `iw_parse.py` | Done |
+| B9: WiFi on NetworkManager (`config-wifi` backend, `bbctrl/wifi.py` scan and status) | Done |
 
 The platform guard has two halves. Both are needed because units in the field run their *installed* `update-bbctrl`, which executes the *new* package's `install.sh`:
 
 - **Package side:** `install.sh` aborts (and restarts `bbctrl`) when the device platform is not listed in the package's `PLATFORMS` file. This protects existing Pi 3 units from Pi 5 packages.
 - **Device side:** `update-bbctrl` checks `PLATFORMS` before stopping `bbctrl`. A package without the file is treated as `raspbian-armhf`. This protects Ubuntu units from old packages.
 - **Release requirement:** the Ubuntu build must list only `ubuntu-arm64` in `PLATFORMS`. The Ubuntu image must ship this `update-bbctrl` and `onefinity-platform` in `/usr/local/bin`.
+
+### WiFi on NetworkManager
+
+`config-wifi` keeps its command-line interface. When NetworkManager is running it uses `nmcli`; otherwise it runs the legacy ifupdown/dhcpcd/hostapd code unchanged.
+`bbctrl/wifi.py` makes the same choice for scanning (`nmcli device wifi list` instead of `iwlist`) and for the active SSID.
+
+- **One profile at a time:** like the legacy backend, it manages a single WiFi profile. Configuring or disabling WiFi deletes every other WiFi connection profile (`onefinity-wifi` for client mode, `onefinity-ap` for access-point mode). Ethernet profiles are not touched.
+- **Access point:** uses `ipv4.method shared` on `192.168.43.1/24`. NetworkManager provides DHCP and NAT, so hostapd, dnsmasq and iptables-persistent aren't needed. WPA2 (RSN/CCMP) only, and a password is required.
+- **Reboot:** `-r` still reboots, because the web UI's connect dialog waits for one. NetworkManager doesn't need it, so the UI could later skip the reboot.
+
+Ubuntu image requirements:
+- Install `network-manager` (with `dnsmasq-base`, which shared mode needs). Set the netplan renderer to `NetworkManager`, e.g. `/etc/netplan/01-network-manager.yaml` with `network: {version: 2, renderer: NetworkManager}`.
+- Don't define WiFi networks in cloud-init / netplan YAML. NetworkManager can't delete those profiles, so they would come back after "disable".
 
 ## Sources
 

@@ -11,8 +11,8 @@ from tornado import gen
 from tornado.escape import url_unescape
 import re
 import bbctrl
+import bbctrl.wifi
 from urllib.request import urlopen
-import iw_parse
 import io
 import zipfile
 import shutil
@@ -150,10 +150,7 @@ class NetworkData(bbctrl.APIHandler):
         except:
             ipAddresses = "Not Connected"
         try:
-            wifi = subprocess.check_output(
-                "sudo iw dev wlan0 info | grep ssid", shell=True).decode().split()
-            wifi.pop(0)
-            wifiName = " ".join(wifi)
+            wifiName = bbctrl.wifi.get_active_ssid() or "not connected"
         except:
             wifiName = "not connected"
         self.write_json({
@@ -183,8 +180,7 @@ class NetworkHandler(bbctrl.APIHandler):
             wifi = {'enabled': False}
 
         try:
-            lines = iw_parse.call_iwlist().decode("utf-8").split("\n")
-            wifi['networks'] = iw_parse.get_parsed_cells(lines)
+            wifi['networks'] = bbctrl.wifi.scan_networks()
         except:
             wifi['networks'] = []
 
