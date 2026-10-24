@@ -25,7 +25,11 @@
 #                                                                              #
 ################################################################################
 
+import glob
 import time
+
+
+CPUFREQ = '/sys/devices/system/cpu/cpufreq/policy*/'
 
 
 def read_temp():
@@ -33,9 +37,17 @@ def read_temp():
         return round(int(f.read()) / 1000)
 
 
+def read_freq(name, default):
+    # Use the board's own limits, e.g. Pi 3: 600-1200 MHz, Pi 5: 1.5-2.4 GHz
+    try:
+        with open(sorted(glob.glob(CPUFREQ + name))[0], 'r') as f:
+            return int(f.read())
+    except (IndexError, OSError, ValueError): return default
+
+
 def set_max_freq(freq):
-    filename = '/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq'
-    with open(filename, 'w') as f: f.write('%d\n' % freq)
+    for filename in glob.glob(CPUFREQ + 'scaling_max_freq'):
+        with open(filename, 'w') as f: f.write('%d\n' % freq)
 
 
 class MonitorTemp(object):
@@ -50,8 +62,8 @@ class MonitorTemp(object):
         self.temp_thresh = 80
         self.min_temp = 60
         self.max_temp = 80
-        self.min_freq = 600000
-        self.max_freq = 1200000
+        self.min_freq = read_freq('cpuinfo_min_freq', 600000)
+        self.max_freq = read_freq('cpuinfo_max_freq', 1200000)
         self.low_camera_temp = 75
         self.high_camera_temp = 80
 

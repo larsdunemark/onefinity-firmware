@@ -168,6 +168,107 @@ function configure_ap() {
 }
 
 
+# NetworkManager backend (Ubuntu).  Like the legacy backend, it keeps a
+# single WiFi profile: configuring or disabling WiFi replaces any others.
+NM_CLIENT=onefinity-wifi
+NM_AP=onefinity-ap
+
+
+function use_nm() {
+    [ "$(nmcli -t -f RUNNING general 2>/dev/null)" == "running" ]
+}
+
+
+function nm_get() { # <field> <connection>
+    nmcli -e no -g "$1" connection show "$2" 2>/dev/null
+}
+
+
+function nm_json() { # <mode> [<ssid> [<channel>]]
+    python3 -c '
+import json, sys
+d = {"mode": sys.argv[1]}
+if 2 < len(sys.argv): d["ssid"] = sys.argv[2]
+if 3 < len(sys.argv) and sys.argv[3].isdigit(): d["channel"] = int(sys.argv[3])
+print(json.dumps(d))' "$@"
+}
+
+
+function nm_query_config() {
+    if nmcli connection show $NM_AP >/dev/null 2>&1; then
+        nm_json ap "$(nm_get 802-11-wireless.ssid $NM_AP)" \
+            "$(nm_get 802-11-wireless.channel $NM_AP)"
+        return
+    fi
+
+    # Our profile, else whatever WiFi profile is active, e.g. one set up
+    # while imaging
+    local NAME=$NM_CLIENT
+    if ! nmcli connection show $NAME >/dev/null 2>&1; then
+        NAME=$(nmcli -e no -g GENERAL.CONNECTION device show wlan0 \
+                   2>/dev/null || true)
+    fi
+
+    local ID=$(nm_get 802-11-wireless.ssid "$NAME")
+    if [ -n "$ID" ]; then
+        nm_json client "$ID"
+    else
+        nm_json disabled
+    fi
+}
+
+
+function nm_disable_wifi() {
+    local UUID
+    for UUID in $(nmcli -g UUID,TYPE connection show |
+                      sed -n 's/^\([^:]*\):802-11-wireless$/\1/p'); do
+        nmcli connection delete "$UUID" >/dev/null
+    done
+}
+
+
+# Note, nmcli takes the PSK as an argument so it is briefly visible in the
+# process list.  bbctrl is the only user of this system.
+function nm_configure_wifi() {
+    nm_disable_wifi
+    nmcli radio wifi on
+
+    local ARGS=(
+        connection add type wifi ifname wlan0 con-name $NM_CLIENT
+        ssid "$SSID" connection.autoconnect yes 802-11-wireless.hidden yes
+    )
+
+    if [ ${#PASS} -ne 0 ]; then
+        ARGS+=(wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$PASS")
+    fi
+
+    nmcli "${ARGS[@]}" >/dev/null
+}
+
+
+# ipv4.method shared runs NetworkManager's own DHCP server and NAT, which
+# replaces hostapd, dnsmasq and the iptables rules of the legacy backend.
+function nm_configure_ap() {
+    if [ ${#PASS} -eq 0 ]; then
+        echo "An access point requires a password"
+        exit 1
+    fi
+
+    nm_disable_wifi
+    nmcli radio wifi on
+
+    nmcli connection add type wifi ifname wlan0 con-name $NM_AP \
+          ssid "$SSID" connection.autoconnect yes \
+          802-11-wireless.mode ap 802-11-wireless.band bg \
+          802-11-wireless.channel "$CHANNEL" \
+          ipv4.method shared ipv4.addresses 192.168.43.1/24 \
+          ipv6.method disabled \
+          wifi-sec.key-mgmt wpa-psk wifi-sec.proto rsn \
+          wifi-sec.pairwise ccmp wifi-sec.group ccmp \
+          wifi-sec.psk "$PASS" >/dev/null
+}
+
+
 function usage() {
     echo "Usage: config-wifi [OPTIONS]"
     echo
@@ -195,7 +296,10 @@ while [ $# -ne 0 ]; do
         -s) SSID="$2"; shift ;;
         -p) PASS="$2"; shift ;;
         -c) CHANNEL="$2"; shift ;;
-        -j) query_config; exit 0 ;;
+        -j)
+            if use_nm; then nm_query_config; else query_config; fi
+            exit 0
+            ;;
 
         -h)
             usage
@@ -212,8 +316,11 @@ while [ $# -ne 0 ]; do
 done
 
 
+if use_nm; then BACKEND=nm_; else BACKEND=; fi
+
+
 if $DISABLE; then
-    disable_wifi
+    ${BACKEND}disable_wifi
 
 else
     # Check args
@@ -247,11 +354,11 @@ else
     # Execute
     if $AP; then
         echo "Configuring Wifi access point"
-        configure_ap
+        ${BACKEND}configure_ap
 
     else
         echo "Configuring Wifi"
-        configure_wifi
+        ${BACKEND}configure_wifi
     fi
 fi
 

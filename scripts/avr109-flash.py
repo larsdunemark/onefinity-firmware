@@ -94,6 +94,23 @@ def reset_avr_gpiod():
     raise Exception('GPIO%d not found' % reset_gpio)
 
 
+def reset_avr_gpiod_v1():
+    # libgpiod v1, e.g. Ubuntu 24.04
+    import gpiod
+
+    line = gpiod.find_line('GPIO%d' % reset_gpio)
+    if line is None: raise Exception('GPIO%d not found' % reset_gpio)
+
+    line.request(consumer = 'avr109-flash', type = gpiod.LINE_REQ_DIR_OUT,
+                 default_vals = [0])
+    line.set_value(1)
+    line.release()
+
+    line.request(consumer = 'avr109-flash', type = gpiod.LINE_REQ_DIR_IN,
+                 flags = gpiod.LINE_REQ_FLAG_BIAS_PULL_UP)
+    line.release()
+
+
 def reset_avr_rpi_gpio():
     import RPi.GPIO as gpio
     gpio.setwarnings(False)
@@ -107,10 +124,11 @@ def reset_avr_rpi_gpio():
 def reset_avr():
     try:
         import gpiod
-        v2 = hasattr(gpiod, 'request_lines')
-    except ImportError: v2 = False
+        version = 2 if hasattr(gpiod, 'request_lines') else 1
+    except ImportError: version = None
 
-    if v2: reset_avr_gpiod()
+    if version == 2: reset_avr_gpiod()
+    elif version == 1: reset_avr_gpiod_v1()
     else: reset_avr_rpi_gpio()
 
 

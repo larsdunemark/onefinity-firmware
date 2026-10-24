@@ -3,14 +3,35 @@
 UPDATE_AVR=true
 UPDATE_PY=true
 REBOOT=false
+FORCE_PLATFORM=false
+ARGS="$*"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-avr) UPDATE_AVR=false ;;
         --no-py) UPDATE_PY=false ;;
+        --force-platform) FORCE_PLATFORM=true ;;
     esac
     shift 1
 done
+
+
+# Older update-bbctrl versions run this script without checking PLATFORMS
+# and after stopping bbctrl, so check here too and restart bbctrl on refusal.
+chmod +x ./scripts/onefinity-platform
+if ! $FORCE_PLATFORM && ! ./scripts/onefinity-platform --check PLATFORMS; then
+    echo "This firmware does not support platform" \
+         "$(./scripts/onefinity-platform), aborting install"
+    systemctl start bbctrl
+    exit 1
+fi
+
+
+# Everything below is for Raspbian
+if [ "$(./scripts/onefinity-platform)" == "ubuntu-arm64" ]; then
+    chmod +x ./platform/ubuntu-arm64/*.sh
+    exec ./platform/ubuntu-arm64/install.sh "$ARGS"
+fi
 
 
 if $UPDATE_PY; then

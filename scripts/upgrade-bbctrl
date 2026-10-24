@@ -3,10 +3,16 @@
 (
     flock -n 9
 
-    VERSION=$(curl -s https://raw.githubusercontent.com/OneFinityCNC/onefinity-release/master/latest.txt)
-    PKG_NAME=onefinity-$VERSION
+    # Raspbian keeps the original file names, other platforms get a suffix
+    PLATFORM=$(onefinity-platform 2>/dev/null || echo raspbian-armhf)
+    SUFFIX=
+    [ "$PLATFORM" != "raspbian-armhf" ] && SUFFIX=-$PLATFORM
+
+    RELEASE_URL=https://raw.githubusercontent.com/OneFinityCNC/onefinity-release/master
+    VERSION=$(curl -s $RELEASE_URL/latest$SUFFIX.txt)
+    PKG_NAME=onefinity-$VERSION$SUFFIX
     PKG=/var/lib/bbctrl/firmware/update.tar.bz2
-    PKG_URL=https://raw.githubusercontent.com/OneFinityCNC/onefinity-release/master/$PKG_NAME.tar.bz2
+    PKG_URL=$RELEASE_URL/$PKG_NAME.tar.bz2
 
     logger Installing onefinity firmware $VERSION
 

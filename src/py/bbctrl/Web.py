@@ -11,8 +11,8 @@ from tornado import gen
 from tornado.escape import url_unescape
 import re
 import bbctrl
+import bbctrl.wifi
 from urllib.request import urlopen
-import iw_parse
 import io
 import zipfile
 import shutil
@@ -22,6 +22,12 @@ def call_get_output(cmd):
     s = p.communicate()[0].decode('utf-8')
     if p.returncode: raise HTTPError(400, 'Command failed')
     return s
+
+
+def get_boot_config_path():
+    # Raspbian: /boot, Ubuntu: /boot/firmware
+    path = '/boot/firmware/config.txt'
+    return path if os.path.exists(path) else '/boot/config.txt'
 
 
 def get_username():
@@ -136,7 +142,7 @@ class NetworkData(bbctrl.APIHandler):
     def get(self):
         try:
             ipAddresses = subprocess.check_output(
-                "ip -4 addr | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'", shell=True).decode().split()
+                r"ip -4 addr | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'", shell=True).decode().split()
             ipAddresses.remove("127.0.0.1")
             regex = re.compile(r'/255$/')
             filtered = [i for i in ipAddresses if not regex.match(i)]
@@ -144,10 +150,7 @@ class NetworkData(bbctrl.APIHandler):
         except:
             ipAddresses = "Not Connected"
         try:
-            wifi = subprocess.check_output(
-                "sudo iw dev wlan0 info | grep ssid", shell=True).decode().split()
-            wifi.pop(0)
-            wifiName = " ".join(wifi)
+            wifiName = bbctrl.wifi.get_active_ssid() or "not connected"
         except:
             wifiName = "not connected"
         self.write_json({
@@ -160,7 +163,7 @@ class NetworkHandler(bbctrl.APIHandler):
     def get(self):
         try:
             ipAddresses = subprocess.check_output(
-                "ip -4 addr | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'", shell=True).decode().split()
+                r"ip -4 addr | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'", shell=True).decode().split()
             ipAddresses.remove("127.0.0.1")
             regex = re.compile(r'/255$/')
             filtered = [i for i in ipAddresses if not regex.match(i)]
@@ -177,8 +180,7 @@ class NetworkHandler(bbctrl.APIHandler):
             wifi = {'enabled': False}
 
         try:
-            lines = iw_parse.call_iwlist().decode("utf-8").split("\n")
-            wifi['networks'] = iw_parse.get_parsed_cells(lines)
+            wifi['networks'] = bbctrl.wifi.scan_networks()
         except:
             wifi['networks'] = []
 
@@ -539,7 +541,7 @@ class ScreenRotationHandler(bbctrl.APIHandler):
 
     @gen.coroutine
     def get(self):
-        with open("/boot/config.txt", 'rt') as config:
+        with open(get_boot_config_path(), 'rt') as config:
             lines = config.readlines()
             for line in lines:
                 if line.startswith('display_rotate'):
@@ -556,22 +558,25 @@ class ScreenRotationHandler(bbctrl.APIHandler):
     def put_ok(self):
         rotated = self.json['rotated']
 
-        subprocess.Popen([
+        # Wait for it, the reboot below could otherwise lose the change
+        subprocess.call([
             '/usr/local/bin/edit-boot-config',
             'display_rotate={}'.format(2 if rotated else 0)
         ])
 
-        with open("/usr/share/X11/xorg.conf.d/40-libinput.conf",
-                  'rt') as config:
-            text = config.read()
-            text = transformationMatrixPattern.sub(r'\1\2\3\5', text)
-            if rotated:
-                text = matchIsTouchscreenPattern.sub(
-                    r'\1\2\3\2Option "TransformationMatrix" "-1 0 1 0 -1 1 0 0 1"\1\4',
-                    text)
-        with open("/usr/share/X11/xorg.conf.d/40-libinput.conf",
-                  'wt') as config:
-            config.write(text)
+        # X11 touch rotation.  Without X (Ubuntu kiosk) the kiosk applies
+        # display_rotate to the outputs and touch follows.
+        libinput_conf = "/usr/share/X11/xorg.conf.d/40-libinput.conf"
+        if os.path.exists(libinput_conf):
+            with open(libinput_conf, 'rt') as config:
+                text = config.read()
+                text = transformationMatrixPattern.sub(r'\1\2\3\5', text)
+                if rotated:
+                    text = matchIsTouchscreenPattern.sub(
+                        r'\1\2\3\2Option "TransformationMatrix" "-1 0 1 0 -1 1 0 0 1"\1\4',
+                        text)
+            with open(libinput_conf, 'wt') as config:
+                config.write(text)
 
         subprocess.run('reboot')
 

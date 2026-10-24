@@ -25,6 +25,7 @@ setup(
             ]
         },
     scripts = [
+        'scripts/onefinity-platform',
         'scripts/update-bbctrl',
         'scripts/upgrade-bbctrl',
         'scripts/sethostname',

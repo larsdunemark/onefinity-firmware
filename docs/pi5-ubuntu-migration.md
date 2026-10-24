@@ -216,6 +216,79 @@ The app layer can be shared. Everything in §2–§4 differs, so keep the platfo
 - Keep Chromium, or accept a WPE-based kiosk (Ubuntu Frame) for a supported Canonical kiosk stack?
 - Will the camera stay USB-only, or should Pi CSI cameras be supported (libcamera)?
 
+## 9. Progress
+
+Hardware-independent changes are landing first. Each one keeps working on Pi 3 / Raspbian Stretch (Python 3.5).
+
+| Item | Status |
+|---|---|
+| B4: AVR reset via libgpiod v2, `RPi.GPIO` fallback | Done (PR #1) |
+| B6 (part): `pkg_resources` removed from resource and version lookups | Done (PR #1) |
+| §6.2.3: update-path platform guard (`PLATFORMS`, `scripts/onefinity-platform`, `update-bbctrl`, `install.sh`) | Done |
+| B8 (part): boot dir detection in `edit-boot-config` and `Web.py` | Done |
+| §3.4: `MonitorTemp.py` reads CPU frequency limits from sysfs, writes all policies | Done |
+| Invalid escape sequences (errors on newer Python) in `Web.py`, `iw_parse.py` | Done |
+| B9: WiFi on NetworkManager (`config-wifi` backend, `bbctrl/wifi.py` scan and status) | Done |
+| B7, §4.3, §4.4, §4.6: systemd units, cage + Chromium kiosk, Ubuntu system setup (`platform/ubuntu-arm64/`) | Done |
+| B6, §6.2: Ubuntu install path (venv, offline wheels, `make pkg PLATFORM=ubuntu-arm64`, per-platform release channel) | Done, needs an arm64 `gplan.so` (B5) |
+
+The platform guard has two halves. Both are needed because units in the field run their *installed* `update-bbctrl`, which executes the *new* package's `install.sh`:
+
+- **Package side:** `install.sh` aborts (and restarts `bbctrl`) when the device platform is not listed in the package's `PLATFORMS` file. This protects existing Pi 3 units from Pi 5 packages.
+- **Device side:** `update-bbctrl` checks `PLATFORMS` before stopping `bbctrl`. A package without the file is treated as `raspbian-armhf`. This protects Ubuntu units from old packages.
+- **Release requirement:** `PLATFORMS` is written by `make pkg` from `PLATFORM` (default `raspbian-armhf`), so the same tree builds both. The Ubuntu image must ship this `update-bbctrl` and `onefinity-platform` in `/usr/local/bin`; the Ubuntu installer links them there.
+
+### WiFi on NetworkManager
+
+`config-wifi` keeps its command-line interface. When NetworkManager is running it uses `nmcli`; otherwise it runs the legacy ifupdown/dhcpcd/hostapd code unchanged.
+`bbctrl/wifi.py` makes the same choice for scanning (`nmcli device wifi list` instead of `iwlist`) and for the active SSID.
+
+- **One profile at a time:** like the legacy backend, it manages a single WiFi profile. Configuring or disabling WiFi deletes every other WiFi connection profile (`onefinity-wifi` for client mode, `onefinity-ap` for access-point mode). Ethernet profiles are not touched.
+- **Access point:** uses `ipv4.method shared` on `192.168.43.1/24`. NetworkManager provides DHCP and NAT, so hostapd, dnsmasq and iptables-persistent aren't needed. WPA2 (RSN/CCMP) only, and a password is required.
+- **Reboot:** `-r` still reboots, because the web UI's connect dialog waits for one. NetworkManager doesn't need it, so the UI could later skip the reboot.
+
+Ubuntu image requirements:
+- Install `network-manager` (with `dnsmasq-base`, which shared mode needs). Set the netplan renderer to `NetworkManager`, e.g. `/etc/netplan/01-network-manager.yaml` with `network: {version: 2, renderer: NetworkManager}`.
+- Don't define WiFi networks in cloud-init / netplan YAML. NetworkManager can't delete those profiles, so they would come back after "disable".
+
+### systemd units and kiosk (`platform/ubuntu-arm64/`)
+
+These files replace `rc.local`, `xinitrc`, `scripts/browser` and ratpoison on Ubuntu. The Raspbian files are unchanged.
+
+| File | Replaces | Notes |
+|---|---|---|
+| `bbctrl.service` | `scripts/bbctrl.service` | Runs `/opt/onefinity/venv/bin/bbctrl` (venv install is still to do, B6). Adds `RestartSec`, `StateDirectory`. Keeps `KillMode=process`, because `update-bbctrl` is a child of `bbctrl` and stops it. |
+| `onefinity-hw-setup` + `.service` | UART part of `rc.local` | If the `bbserial` module is installed, unbinds the PL011 that the `serial0` DT alias points to (no hard-coded address) and loads `bbserial`. Otherwise leaves the stock driver (§3.1 option 1). |
+| `onefinity-kiosk.service` | `rc.local` `startx`, `xinitrc` loop | `cage` on tty1 as user `kiosk`, restarted by systemd. |
+| `onefinity-browser` | `xinitrc`, `scripts/browser` | Waits for `bbctrl`, applies `display_rotate` from `config.txt` with `wlr-randr` (touch follows the output), clears Chromium crash flags, runs Chromium `--kiosk` on Wayland. |
+| `setup-system.sh` | parts of `setup_rpi.sh` / `install.sh` | Idempotent. Installs packages and the Chromium snap. Creates the `kiosk` user. Sets the browser memory limit (650M/750M, as `rc.local`'s cgroup did) on the kiosk user's slice, because the Chromium snap runs in its own scope outside the service. Disables unattended upgrades, holds snap refreshes, disables cloud-init after first boot, sets the netplan renderer to NetworkManager, installs and enables the units. |
+
+To verify on hardware:
+- Chromium snap under cage via a PAM session, and the memory limit actually applying to the snap's scope.
+- `wlr-randr` transforms and touch mapping on the OneFinity touchscreen.
+- The RP1 UART appearing under `uart-pl011` on the amba bus.
+- Whether `--kiosk` is wanted. The X11 setup didn't use it and relied on ratpoison to maximize the window.
+
+### Ubuntu install path
+
+Build with `make pkg PLATFORM=ubuntu-arm64`. This writes `PLATFORMS`, skips the 32-bit `bbserial` build, and bundles the Python dependencies Ubuntu doesn't package (`platform/ubuntu-arm64/requirements.txt`, today only `sockjs-tornado`) as wheels in `wheels/`.
+
+On the device, `scripts/install.sh` runs the platform guard and then hands off to `platform/ubuntu-arm64/install.sh`. That script is used for first installs and for updates, and works offline:
+
+1. **System setup:** runs `setup-system.sh`, which installs Ubuntu packages and the Chromium snap only if they're missing (fresh image), then installs the units, kiosk, logrotate and settings.
+2. **venv:** installs `bbctrl` into `/opt/onefinity/venv` (`--system-site-packages`, dependencies from Ubuntu packages), with `pip --no-index`. The venv is recreated when the system Python version changes, e.g. after a release upgrade.
+3. **Scripts:** links the package's scripts into `/usr/local/bin`, where `bbctrl` and the units expect them. The list comes from the installed package's metadata, not a copy of `setup.py`.
+4. **AVR:** flashes it with the venv's Python.
+5. **Boot config:** appends missing `config.txt` lines (`dtparam=i2c_arm=on`; UART overlays once verified). It doesn't use `edit-boot-config`, which would replace the first `dtparam=` line. Reboots if anything was added, otherwise restarts `bbctrl` and the kiosk.
+6. **On failure:** an error trap restarts `bbctrl` and the kiosk, so a failed update doesn't leave the controller stopped.
+
+Release channel: `upgrade-bbctrl` on Ubuntu fetches `latest-ubuntu-arm64.txt` and `onefinity-$VERSION-ubuntu-arm64.tar.bz2` from the release repo. Raspbian keeps `latest.txt` and `onefinity-$VERSION.tar.bz2`.
+
+Notes:
+- `sockjs-tornado` 1.0.7 (2019) was tested on Python 3.13 with Tornado 6.6 (websocket and XHR transports). It works, but uses a deprecated shim, so replacing it with Tornado's own `WebSocketHandler` is still worthwhile (§5).
+- `python3-libgpiod` is v1 on Ubuntu 24.04, and should be v2 on later releases. `avr109-flash.py` supports both.
+- **Pre-existing Pi 3 bug, not changed:** `scripts/edit-boot-config` is not executable in git, so `install.sh`'s `max_usb_current=1` / `config_hdmi_boost=8` calls fail with "Permission denied" on every Pi 3 update. The legacy script doesn't stop on errors, so this was silent. Fixing it (`chmod +x`) would start applying those settings on field units, so it is a separate decision.
+
 ## Sources
 
 - [Install Ubuntu on Raspberry Pi (Canonical)](https://ubuntu.com/raspberry-pi): image availability and the Pi 5 EEPROM requirement

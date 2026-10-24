@@ -1,12 +1,23 @@
 #!/bin/bash
 
-cp /boot/config.txt /tmp/
+# Raspbian: /boot, Ubuntu: /boot/firmware.  Must match onefinity-platform,
+# which may not be on the PATH yet when install.sh runs this.
+BOOT_DIR=/boot
+[ -e /boot/firmware/config.txt ] && BOOT_DIR=/boot/firmware
 
-edit-config /tmp/config.txt "$@"
+cp $BOOT_DIR/config.txt /tmp/
 
-diff /boot/config.txt /tmp/config.txt >/dev/null
+# edit-config is installed next to this script, also when run from a package
+python3 "$(dirname "$0")/edit-config" /tmp/config.txt "$@"
+
+diff $BOOT_DIR/config.txt /tmp/config.txt >/dev/null
 if [ $? -eq 1 ]; then
-  mount -o remount,rw /boot
-  mv /tmp/config.txt /boot/
-  mount -o remount,ro /boot
+  # Raspbian keeps /boot read-only, Ubuntu keeps /boot/firmware writable
+  RO=false
+  findmnt -no OPTIONS $BOOT_DIR 2>/dev/null | tr , '\n' | grep -qx ro &&
+      RO=true
+
+  $RO && mount -o remount,rw $BOOT_DIR
+  mv /tmp/config.txt $BOOT_DIR/
+  $RO && mount -o remount,ro $BOOT_DIR
 fi

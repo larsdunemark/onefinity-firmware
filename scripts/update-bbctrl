@@ -10,18 +10,30 @@
       exit 1
     fi
 
-    systemctl stop bbctrl
+    LOG=/var/log/bbctrl.$(date +%Y%m%d-%H%M%S).install
 
     rm -rf /tmp/update
     mkdir /tmp/update
     cd /tmp/update
-
-    LOG=/var/log/bbctrl.$(date +%Y%m%d-%H%M%S).install
     tar xf "$UPDATE"
     cd *
-    ./scripts/install.sh "$*" 2>&1 > $LOG
 
-    cd -
+    # Refuse packages built for another OS image before touching anything
+    if ! /usr/local/bin/onefinity-platform --check PLATFORMS; then
+        MSG="Firmware update rejected: package does not support platform"
+        MSG+=" $(/usr/local/bin/onefinity-platform)"
+        echo "$MSG" | tee $LOG
+        logger "$MSG"
+        cd /
+        rm -rf /tmp/update $UPDATE
+        exit 1
+    fi
+
+    systemctl stop bbctrl
+
+    ./scripts/install.sh "$*" > $LOG 2>&1
+
+    cd /
     rm -rf /tmp/update $UPDATE
 
 ) 9> /var/lock/bbctrl.update.lock
