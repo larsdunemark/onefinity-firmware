@@ -1,4 +1,4 @@
-include package.json README.md
+include package.json README.md PLATFORMS
 graft scripts
 graft src/py/bbctrl/http
 graft src/py/camotics

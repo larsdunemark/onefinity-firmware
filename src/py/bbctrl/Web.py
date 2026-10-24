@@ -24,6 +24,12 @@ def call_get_output(cmd):
     return s
 
 
+def get_boot_config_path():
+    # Raspbian: /boot, Ubuntu: /boot/firmware
+    path = '/boot/firmware/config.txt'
+    return path if os.path.exists(path) else '/boot/config.txt'
+
+
 def get_username():
     return call_get_output(['getent', 'passwd', '1001']).split(':')[0]
 
@@ -136,7 +142,7 @@ class NetworkData(bbctrl.APIHandler):
     def get(self):
         try:
             ipAddresses = subprocess.check_output(
-                "ip -4 addr | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'", shell=True).decode().split()
+                r"ip -4 addr | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'", shell=True).decode().split()
             ipAddresses.remove("127.0.0.1")
             regex = re.compile(r'/255$/')
             filtered = [i for i in ipAddresses if not regex.match(i)]
@@ -160,7 +166,7 @@ class NetworkHandler(bbctrl.APIHandler):
     def get(self):
         try:
             ipAddresses = subprocess.check_output(
-                "ip -4 addr | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'", shell=True).decode().split()
+                r"ip -4 addr | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'", shell=True).decode().split()
             ipAddresses.remove("127.0.0.1")
             regex = re.compile(r'/255$/')
             filtered = [i for i in ipAddresses if not regex.match(i)]
@@ -539,7 +545,7 @@ class ScreenRotationHandler(bbctrl.APIHandler):
 
     @gen.coroutine
     def get(self):
-        with open("/boot/config.txt", 'rt') as config:
+        with open(get_boot_config_path(), 'rt') as config:
             lines = config.readlines()
             for line in lines:
                 if line.startswith('display_rotate'):

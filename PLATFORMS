@@ -1,0 +1,4 @@
+# Platforms this firmware package can be installed on, one per line.
+# A platform is "<ID from /etc/os-release>-<dpkg --print-architecture>",
+# as printed by scripts/onefinity-platform.
+raspbian-armhf

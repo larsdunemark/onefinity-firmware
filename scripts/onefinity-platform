@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Prints this system's platform id, e.g. "raspbian-armhf" or "ubuntu-arm64".
+#
+#   --boot-dir           Print the firmware boot partition directory instead.
+#   --check <PLATFORMS>  Exit 0 if this platform is listed in the PLATFORMS
+#                        file, 1 otherwise.  A missing file means the package
+#                        predates platform checks and only supports
+#                        raspbian-armhf.
+
+platform() {
+    local ID=unknown
+    [ -e /etc/os-release ] && . /etc/os-release
+    echo "$ID-$(dpkg --print-architecture 2>/dev/null || echo unknown)"
+}
+
+case "$1" in
+    --boot-dir)
+        if [ -e /boot/firmware/config.txt ]; then
+            echo /boot/firmware
+        else
+            echo /boot
+        fi
+        ;;
+
+    --check)
+        PLATFORM=$(platform)
+        if [ -e "$2" ]; then
+            grep -v '^#' "$2" | grep -qx "$PLATFORM"
+        else
+            [ "$PLATFORM" == "raspbian-armhf" ]
+        fi
+        ;;
+
+    "") platform ;;
+
+    *)
+        echo "Usage: $0 [--boot-dir | --check <PLATFORMS file>]" >&2
+        exit 2
+        ;;
+esac
