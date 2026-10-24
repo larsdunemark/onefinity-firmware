@@ -216,6 +216,25 @@ The app layer can be shared. Everything in §2–§4 differs, so keep the platfo
 - Keep Chromium, or accept a WPE-based kiosk (Ubuntu Frame) for a supported Canonical kiosk stack?
 - Will the camera stay USB-only, or should Pi CSI cameras be supported (libcamera)?
 
+## 9. Progress
+
+Hardware-independent changes are landing first. Each one keeps working on Pi 3 / Raspbian Stretch (Python 3.5).
+
+| Item | Status |
+|---|---|
+| B4: AVR reset via libgpiod v2, `RPi.GPIO` fallback | Done (PR #1) |
+| B6 (part): `pkg_resources` removed from resource and version lookups | Done (PR #1) |
+| §6.2.3: update-path platform guard (`PLATFORMS`, `scripts/onefinity-platform`, `update-bbctrl`, `install.sh`) | Done |
+| B8 (part): boot dir detection in `edit-boot-config` and `Web.py` | Done |
+| §3.4: `MonitorTemp.py` reads CPU frequency limits from sysfs, writes all policies | Done |
+| Invalid escape sequences (errors on newer Python) in `Web.py`, `iw_parse.py` | Done |
+
+The platform guard has two halves. Both are needed because units in the field run their *installed* `update-bbctrl`, which executes the *new* package's `install.sh`:
+
+- **Package side:** `install.sh` aborts (and restarts `bbctrl`) when the device platform is not listed in the package's `PLATFORMS` file. This protects existing Pi 3 units from Pi 5 packages.
+- **Device side:** `update-bbctrl` checks `PLATFORMS` before stopping `bbctrl`. A package without the file is treated as `raspbian-armhf`. This protects Ubuntu units from old packages.
+- **Release requirement:** the Ubuntu build must list only `ubuntu-arm64` in `PLATFORMS`. The Ubuntu image must ship this `update-bbctrl` and `onefinity-platform` in `/usr/local/bin`.
+
 ## Sources
 
 - [Install Ubuntu on Raspberry Pi (Canonical)](https://ubuntu.com/raspberry-pi): image availability and the Pi 5 EEPROM requirement
