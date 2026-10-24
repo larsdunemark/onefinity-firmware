@@ -34,7 +34,6 @@ import tornado
 import argparse
 import datetime
 
-from pkg_resources import Requirement, resource_filename
 
 from bbctrl.RequestHandler import RequestHandler
 from bbctrl.APIHandler import APIHandler
@@ -69,7 +68,7 @@ ctrl = None
 
 
 def get_resource(path):
-    return resource_filename(Requirement.parse('bbctrl'), 'bbctrl/' + path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
 
 
 def on_exit(sig = 0, func = None):

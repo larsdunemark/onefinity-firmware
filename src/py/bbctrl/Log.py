@@ -30,7 +30,6 @@ import sys
 import io
 import datetime
 import traceback
-import pkg_resources
 from inspect import getframeinfo, stack
 import bbctrl
 
@@ -49,6 +48,16 @@ def get_level_name(level): return level_names[level]
 
 # Get this file's name
 _srcfile = os.path.normcase(get_level_name.__code__.co_filename)
+
+
+def get_version():
+    try:
+        from importlib.metadata import version
+        return version('bbctrl')
+
+    except ImportError: # Python < 3.8
+        import pkg_resources
+        return pkg_resources.require('bbctrl')[0].version
 
 
 class Logger(object):
@@ -117,7 +126,7 @@ class Log(object):
         self._open()
 
         # Log header
-        version = pkg_resources.require('bbctrl')[0].version
+        version = get_version()
         self._log('Log started v%s' % version)
         self._log_time(ioloop)
 

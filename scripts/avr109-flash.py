@@ -9,6 +9,7 @@ import binascii
 dev = '/dev/ttyAMA0'
 baud = 921600
 boot_id = 'bbctrl '
+reset_gpio = 27 # BCM numbering
 verbose = False
 
 
@@ -69,6 +70,50 @@ def read_intel_hex(f):
     if chunk is not None: yield (start, chunk)
 
 
+def reset_avr_gpiod():
+    # libgpiod v2, works on the Pi 5 where RPi.GPIO does not
+    import glob
+    import gpiod
+    from gpiod.line import Bias, Direction, Value
+
+    for path in sorted(glob.glob('/dev/gpiochip*')):
+        try:
+            with gpiod.Chip(path) as chip:
+                offset = chip.line_offset_from_id('GPIO%d' % reset_gpio)
+        except (OSError, ValueError): continue
+
+        settings = gpiod.LineSettings(direction = Direction.OUTPUT,
+                                      output_value = Value.INACTIVE)
+        with gpiod.request_lines(path, consumer = 'avr109-flash',
+                                 config = {offset: settings}) as req:
+            req.set_value(offset, Value.ACTIVE)
+            req.reconfigure_lines({offset: gpiod.LineSettings(
+                direction = Direction.INPUT, bias = Bias.PULL_UP)})
+        return
+
+    raise Exception('GPIO%d not found' % reset_gpio)
+
+
+def reset_avr_rpi_gpio():
+    import RPi.GPIO as gpio
+    gpio.setwarnings(False)
+    gpio.setmode(gpio.BCM)
+    gpio.setup(reset_gpio, gpio.OUT)
+    gpio.output(reset_gpio, 0)
+    gpio.output(reset_gpio, 1)
+    gpio.setup(reset_gpio, gpio.IN, pull_up_down = gpio.PUD_UP)
+
+
+def reset_avr():
+    try:
+        import gpiod
+        v2 = hasattr(gpiod, 'request_lines')
+    except ImportError: v2 = False
+
+    if v2: reset_avr_gpiod()
+    else: reset_avr_rpi_gpio()
+
+
 def send(data):
     if verbose: print('Sending:', data)
     sp.write(bytes(data, 'utf8'))
@@ -98,13 +143,7 @@ data = list(read_intel_hex(open(sys.argv[1], 'r')))
 sp = serial.Serial(dev, baud, timeout = 10)
 
 # Reset AVR
-import RPi.GPIO as gpio
-gpio.setwarnings(False)
-gpio.setmode(gpio.BCM)
-gpio.setup(27, gpio.OUT)
-gpio.output(27, 0)
-gpio.output(27, 1)
-gpio.setup(27, gpio.IN, pull_up_down = gpio.PUD_UP)
+reset_avr()
 time.sleep(0.1)
 
 # Sync

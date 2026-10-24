@@ -27,12 +27,10 @@
 
 import os
 import json
-import pkg_resources
-from pkg_resources import Requirement, resource_filename
 
 
 def get_resource(path):
-    return resource_filename(Requirement.parse('bbctrl'), 'bbctrl/' + path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
 
 
 class Config(object):
